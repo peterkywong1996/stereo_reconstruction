@@ -1,8 +1,39 @@
-#import pylab
 import numpy as np
 from scipy import linalg
 from math import pow, sqrt
 import cv2
+import argparse
+
+def load_points(data_dir='./data/points/01_x1.txt'):
+    x = np.loadtxt(data_dir, delimiter=',')
+    x = x.T
+    n = x.shape[1]
+    x = np.append(x, np.ones(n))
+    x = x.reshape(3,n)
+    return x
+
+def compute_transformation(x1, x2):
+    n = x1.shape[1]
+    if x2.shape[1] != n:
+        raise ValueError("Number of points do not match.")
+        
+    # Normalized image coordinates
+    x1 /= x1[2]
+    x2 /= x2[2]
+    mean1 = np.mean(x1[:2], axis=1)
+    mean2 = np.mean(x2[:2], axis=1)
+    
+    dist_sum = 0.0
+    for i in range(n):
+        dist_sum += pow((x1[0,i]-mean1[0]),2) + pow((x1[1,i]-mean1[1]),2)
+        dist_sum += pow((x2[0,i]-mean2[0]),2) + pow((x2[1,i]-mean2[1]),2)
+        
+    S = 1 / sqrt(dist_sum/(2*2*n))
+    
+    T1 = np.array([[S,0,-S*mean1[0]],[0,S,-S*mean1[1]],[0,0,1]])
+    T2 = np.array([[S,0,-S*mean2[0]],[0,S,-S*mean2[1]],[0,0,1]])
+    
+    return T1, T2
 
 def compute_fundamental(x1, x2):
     """
@@ -60,40 +91,26 @@ def compute_fundamental_normalized(x1, x2):
 
     return F / F[2,2]
 
-def compute_transformation(x1, x2):
-    n = x1.shape[1]
-    if x2.shape[1] != n:
-        raise ValueError("Number of points do not match.")
-        
-    # Normalized image coordinates
-    x1 /= x1[2]
-    x2 /= x2[2]
-    mean1 = np.mean(x1[:2], axis=1)
-    mean2 = np.mean(x2[:2], axis=1)
-    
-    dist_sum = 0.0
-    for i in range(n):
-        dist_sum += pow((x1[0,i]-mean1[0]),2) + pow((x1[1,i]-mean1[1]),2)
-        dist_sum += pow((x2[0,i]-mean2[0]),2) + pow((x2[1,i]-mean2[1]),2)
-        
-    S = 1 / sqrt(dist_sum/(2*2*n))
-    
-    T1 = np.array([[S,0,-S*mean1[0]],[0,S,-S*mean1[1]],[0,0,1]])
-    T2 = np.array([[S,0,-S*mean2[0]],[0,S,-S*mean2[1]],[0,0,1]])
-    
-    return T1, T2
-
 def my_print(mat):
     for r in mat:
         print(r)
         
 def main():
+    """
     N = 200
-    
     x1 = N*np.random.rand(3,8)
     x2 = N*np.random.rand(3,8)
     x1[2,:] = 1
     x2[2,:] = 1
+    """
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir_x1', type=str)
+    parser.add_argument('--dir_x2', type=str)
+    args = parser.parse_args()
+    
+    x1 = load_points(args.dir_x1)
+    x2 = load_points(args.dir_x2)
     
     print("\n---------Matrix results---------")
     print("Testing x1:")
@@ -115,6 +132,7 @@ def main():
     print("F by OpenCV package:")
     my_print(F_cv)
     
+    """
     print("\n---------Test point results---------")
     
     p = N*np.random.rand(3,1)
@@ -132,6 +150,7 @@ def main():
     L_cv = F_cv * p
     print("Epiline by OpenCV package")
     my_print(L_cv)
+    """
    
 if __name__ == "__main__":
     main()

@@ -88,8 +88,10 @@ def my_print(mat):
         print(r)
         
 def main():
-    x1 = np.random.rand(3,8)
-    x2 = np.random.rand(3,8)
+    N = 200
+    
+    x1 = N*np.random.rand(3,8)
+    x2 = N*np.random.rand(3,8)
     x1[2,:] = 1
     x2[2,:] = 1
     
@@ -115,7 +117,7 @@ def main():
     
     print("\n---------Test point results---------")
     
-    p = np.random.rand(3,1)
+    p = N*np.random.rand(3,1)
     p[2,:] = 1
     print("Testing a point: ", p[:,0],"\n")
 

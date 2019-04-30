@@ -1,6 +1,7 @@
-import pylab
+#import pylab
 import numpy as np
 from scipy import linalg
+from math import pow, sqrt
 import cv2
 
 def compute_fundamental(x1, x2):
@@ -46,26 +47,41 @@ def compute_fundamental_normalized(x1, x2):
     if x2.shape[1] != n:
         raise ValueError("Number of points do not match.")
     
-    # Normalized image coordinates
-    x1 /= x1[2]
-    mean_1 = np.mean(x1[:2], axis=1)
-    S1 = np.sqrt(2) / np.std(x1[:2])
-    T1 = np.array([[S1,0,-S1*mean_1[0]],[0,S1,-S1*mean_1[1]],[0,0,1]])
+    T1, T2 = compute_transformation(x1, x2)
+    
     x1 = np.dot(T1, x1)
-    
-    x2 = x2 / x2[2]
-    mean_2 = np.mean(x2[:2], axis=1)
-    S2 = np.sqrt(2) / np.std(x2[:2])
-    T2 = np.array([[S2,0,-S2*mean_2[0]],[0,S2,-S2*mean_2[1]],[0,0,1]])
-    x2 = np.dot(T2,x2)
-    
+    x2 = np.dot(T2, x2)
+
     # Compute F with the normalized coordinates
     F = compute_fundamental(x1, x2)
-    
-    # Reverse normalization
-    F = np.dot(T1.T, np.dot(F, T2))
-    
+
+    # De-normalization
+    F = np.dot(T2.T, np.dot(F, T1))
+
     return F / F[2,2]
+
+def compute_transformation(x1, x2):
+    n = x1.shape[1]
+    if x2.shape[1] != n:
+        raise ValueError("Number of points do not match.")
+        
+    # Normalized image coordinates
+    x1 /= x1[2]
+    x2 /= x2[2]
+    mean1 = np.mean(x1[:2], axis=1)
+    mean2 = np.mean(x2[:2], axis=1)
+    
+    dist_sum = 0.0
+    for i in range(n):
+        dist_sum += pow((x1[0,i]-mean1[0]),2) + pow((x1[1,i]-mean1[1]),2)
+        dist_sum += pow((x2[0,i]-mean2[0]),2) + pow((x2[1,i]-mean2[1]),2)
+        
+    S = 1 / sqrt(dist_sum/(2*2*n))
+    
+    T1 = np.array([[S,0,-S*mean1[0]],[0,S,-S*mean1[1]],[0,0,1]])
+    T2 = np.array([[S,0,-S*mean2[0]],[0,S,-S*mean2[1]],[0,0,1]])
+    
+    return T1, T2
 
 def my_print(mat):
     for r in mat:
@@ -85,17 +101,17 @@ def main():
     
     print("")
           
-    A = compute_fundamental(x1, x2)
+    F = compute_fundamental(x1, x2)
     print("F by custom function:")
-    my_print(A)
+    my_print(F)
     
-    A_norm = compute_fundamental_normalized(x1, x2)
+    F_norm = compute_fundamental_normalized(x1, x2)
     print("F_norm by custom function:")
-    my_print(A_norm)
+    my_print(F_norm)
     
-    A_cv, mask = cv2.findFundamentalMat(x1.T, x2.T, 2) # 2 --> 8-point algorithm
+    F_cv, mask = cv2.findFundamentalMat(x1.T, x2.T, 2) # 2 --> 8-point algorithm
     print("F by OpenCV package:")
-    my_print(A_cv)
+    my_print(F_cv)
     
     print("\n---------Test point results---------")
     
@@ -103,15 +119,15 @@ def main():
     p[2,:] = 1
     print("Testing a point: ", p[:,0],"\n")
 
-    L = A * p
+    L = F * p
     print("Epiline by custom function:")
     my_print(L)
     
-    L_norm = A_norm * p
+    L_norm = F_norm * p
     print("Epiline by custom function normalized:")
     my_print(L_norm)
     
-    L_cv = A_cv * p
+    L_cv = F_cv * p
     print("Epiline by OpenCV package")
     my_print(L_cv)
    

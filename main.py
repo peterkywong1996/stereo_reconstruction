@@ -6,11 +6,39 @@ import argparse
 
 def load_points(data_dir='./data/points/01_x1.txt'):
     x = np.loadtxt(data_dir, delimiter=',')
+    x = np.insert(x, x.shape[1], 1.0, axis=1)
     x = x.T
-    n = x.shape[1]
-    x = np.append(x, np.ones(n))
-    x = x.reshape(3,n)
     return x
+
+def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectified/01/im1.png'):
+    sift = cv2.xfeatures2d.SIFT_create()
+    img1 = cv2.imread(dir1)
+    img2 = cv2.imread(dir2)
+    
+    (kps1, descs1) = sift.detectAndCompute(img1, None)
+    (kps2, descs2) = sift.detectAndCompute(img2, None)
+    
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(descs1, descs2, k=2)
+    
+    toFilter = False #------User Input: whether to filter only those good points
+    if toFilter:
+        good = []
+        for m,n in matches:
+            if m.distance < 0.75*n.distance:
+                good.append([m])
+        matches = good
+        
+    x1 = np.float32([kps1[m[0].queryIdx].pt for m in matches]).reshape(-1,2)
+    x2 = np.float32([kps2[m[0].trainIdx].pt for m in matches]).reshape(-1,2)
+    
+    x1 = np.insert(x1, x1.shape[1], 1.0, axis=1)
+    x2 = np.insert(x2, x2.shape[1], 1.0, axis=1)
+    
+    x1 = x1.T
+    x2 = x2.T
+    
+    return x1, x2
 
 def compute_transformation(x1, x2):
     n = x1.shape[1]
@@ -91,66 +119,102 @@ def compute_fundamental_normalized(x1, x2):
 
     return F / F[2,2]
 
+class RansacModel(object):    
+    def __init__(self, debug=True, return_all=True):
+        self.debug = debug
+        self.return_all = return_all
+    
+    def fit(self,data):        
+        # transpose and split data into the two point sets
+        data = data.T
+        x1 = data[:3,:8]
+        x2 = data[3:,:8]
+        
+        # estimate fundamental matrix and return
+        F = compute_fundamental_normalized(x1,x2)
+        return F
+    
+    def get_error(self,data,F):
+        # transpose and split data into the two point
+        data = data.T
+        x1 = data[:3]
+        x2 = data[3:]
+        
+        # Sampson distance as error measure
+        Fx1 = np.dot(F,x1)
+        Fx2 = np.dot(F,x2)
+        denom = Fx1[0]**2 + Fx1[1]**2 + Fx2[0]**2 + Fx2[1]**2
+        err = ( np.diag(np.dot(x1.T, np.dot(F, x2))) )**2 / denom 
+        
+        # return error per point
+        return err
+
+def F_from_ransac(x1, x2, model, n, k, t, d, debug=False, return_all=False):
+    import ransac
+    
+    data = np.vstack((x1,x2))
+    
+    # compute F and return with inlier index
+    F, ransac_data = ransac.ransac(data.T, model, n, k, t, d, debug, return_all)
+    
+    return F, ransac_data['inliers']
+
 def my_print(mat):
     for r in mat:
         print(r)
         
-def main():
-    """
-    N = 200
-    x1 = N*np.random.rand(3,8)
-    x2 = N*np.random.rand(3,8)
-    x1[2,:] = 1
-    x2[2,:] = 1
-    """
-    
+def main():    
     parser = argparse.ArgumentParser()
+    
+    parser.add_argument('--manual', action='store_true', default=False)
     parser.add_argument('--dir_x1', type=str)
     parser.add_argument('--dir_x2', type=str)
+    
+    parser.add_argument('--dir_img1', type=str, default='./data/non-rectified/01/im0.png')
+    parser.add_argument('--dir_img2', type=str, default='./data/non-rectified/01/im1.png')
+    parser.add_argument('--use_ransac', action='store_true', default=False)
+    parser.add_argument('--min_data', type=int)
+    parser.add_argument('--min_close_data', type=int)    
+    parser.add_argument('--max_iteration', type=int)
+    parser.add_argument('--max_error', type=float)
     args = parser.parse_args()
     
-    x1 = load_points(args.dir_x1)
-    x2 = load_points(args.dir_x2)
+    if args.manual:
+        x1 = load_points(args.dir_x1)
+        x2 = load_points(args.dir_x2)
+        
+        print("Testing x1:")
+        my_print(x1.T)
+        print("Testing x2:")
+        my_print(x2.T)
+    
+    else:
+        x1, x2 = pointsBySIFT(args.dir_img1, args.dir_img2)
+        print("Number of points detected: ", x1.shape[1])
     
     print("\n---------Matrix results---------")
-    print("Testing x1:")
-    my_print(x1.T)
-    print("Testing x2:")
-    my_print(x2.T)
     
-    print("")
-          
     F = compute_fundamental(x1, x2)
-    print("F by custom function:")
+    print("\nF by custom function:")
     my_print(F)
     
     F_norm = compute_fundamental_normalized(x1, x2)
-    print("F_norm by custom function:")
+    print("\nF_norm by custom function:")
     my_print(F_norm)
     
     F_cv, mask = cv2.findFundamentalMat(x1.T, x2.T, 2) # 2 --> 8-point algorithm
-    print("F by OpenCV package:")
+    print("\nF by OpenCV package:")
     my_print(F_cv)
     
-    """
-    print("\n---------Test point results---------")
-    
-    p = N*np.random.rand(3,1)
-    p[2,:] = 1
-    print("Testing a point: ", p[:,0],"\n")
-
-    L = F * p
-    print("Epiline by custom function:")
-    my_print(L)
-    
-    L_norm = F_norm * p
-    print("Epiline by custom function normalized:")
-    my_print(L_norm)
-    
-    L_cv = F_cv * p
-    print("Epiline by OpenCV package")
-    my_print(L_cv)
-    """
+    if args.use_ransac:
+        n = args.min_data
+        k = args.max_iteration
+        t = args.max_error
+        d = args.min_close_data
+        model = RansacModel(debug=False, return_all=True)
+        F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all)
+        print("\nF by RANSAC:")
+        my_print(F_ransac)
    
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@ from scipy import linalg
 from math import pow, sqrt
 import cv2
 import argparse
+from matplotlib import pyplot as plt
 
 def load_points(data_dir='./data/points/01_x1.txt'):
     x = np.loadtxt(data_dir, delimiter=',')
@@ -10,7 +11,7 @@ def load_points(data_dir='./data/points/01_x1.txt'):
     x = x.T
     return x
 
-def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectified/01/im1.png'):
+def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectified/01/im1.png', toFilter=True, matcher_choice='bf'):
     sift = cv2.xfeatures2d.SIFT_create()
     img1 = cv2.imread(dir1)
     img2 = cv2.imread(dir2)
@@ -18,17 +19,26 @@ def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectif
     (kps1, descs1) = sift.detectAndCompute(img1, None)
     (kps2, descs2) = sift.detectAndCompute(img2, None)
     
-    bf = cv2.BFMatcher()
-    matches = bf.knnMatch(descs1, descs2, k=2)
+    print("Number of points detected: ", len(kps1))
     
-    toFilter = False #------User Input: whether to filter only those good points
+    matcher = None
+    if matcher_choice == 'bf':
+        matcher = cv2.BFMatcher()
+    elif matcher_choice == 'flann':
+        FLANN_INDEX_KDTREE = 0
+        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        search_params = dict(checks=50)
+        matcher = cv2.FlannBasedMatcher(index_params, search_params)
+   
+    matches = matcher.knnMatch(descs1, descs2, k=2)
+    
+    good = []
     if toFilter:
-        good = []
         for m,n in matches:
-            if m.distance < 0.75*n.distance:
+            if m.distance < 0.2*n.distance:
                 good.append([m])
         matches = good
-        
+          
     x1 = np.float32([kps1[m[0].queryIdx].pt for m in matches]).reshape(-1,2)
     x2 = np.float32([kps2[m[0].trainIdx].pt for m in matches]).reshape(-1,2)
     
@@ -162,7 +172,18 @@ def F_from_ransac(x1, x2, model, n, k, t, d, debug=False, return_all=False):
 def my_print(mat):
     for r in mat:
         print(r)
-        
+
+def drawlines(img1, img2, lines, pts1, pts2):
+    r, c = img1.shape[:2]
+    for r,pt1,pt2 in zip(lines,pts1.T,pts2.T):
+        color = tuple(np.random.randint(0,255,3).tolist())
+        x0,y0 = map(int, [0, -r[2]/r[1] ])
+        x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
+        img1 = cv2.line(img1, (x0,y0), (x1,y1), color,1)
+        img1 = cv2.circle(img1,tuple(pt1[:2]),5,color,-1)
+        img2 = cv2.circle(img2,tuple(pt2[:2]),5,color,-1)
+    return img1,img2
+
 def main():    
     parser = argparse.ArgumentParser()
     
@@ -190,7 +211,7 @@ def main():
     
     else:
         x1, x2 = pointsBySIFT(args.dir_img1, args.dir_img2)
-        print("Number of points detected: ", x1.shape[1])
+        print("Number of points used: ", x1.shape[1])
     
     print("\n---------Matrix results---------")
     
@@ -206,15 +227,47 @@ def main():
     print("\nF by OpenCV package:")
     my_print(F_cv)
     
+    print("")
+    
     if args.use_ransac:
         n = args.min_data
         k = args.max_iteration
         t = args.max_error
         d = args.min_close_data
+        
         model = RansacModel(debug=False, return_all=True)
         F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all)
-        print("\nF by RANSAC:")
+                
+        print("\nF by RANSAC trained with 8 points:")
         my_print(F_ransac)
-   
+        
+        print('\nNumber of inliners: ', len(data_ransac))
+        x1 = x1[:, data_ransac]
+        x2 = x2[:, data_ransac]
+        
+        F_ransac = compute_fundamental_normalized(x1, x2)
+        print("\nF by RANSAC with all best inliners:")
+        my_print(F_ransac)
+    
+    """
+    # Find epilines corresponding to points in right image (second image) and
+    # drawing its lines on left image
+    
+    img1 = cv2.imread(args.dir_img1)
+    img2 = cv2.imread(args.dir_img2)
+    
+    lines1 = cv2.computeCorrespondEpilines(x2.T, 2, F_norm)
+    lines1 = lines1.reshape(-1,3)
+    img5,img6 = drawlines(img1,img2,lines1,x1,x2)
+    
+    lines2 = cv2.computeCorrespondEpilines(x1.T, 1, F_norm)
+    lines2 = lines2.reshape(-1,3)
+    img3,img4 = drawlines(img2,img1,lines2,x2,x1)
+    
+    plt.subplot(121),plt.imshow(img5)
+    plt.subplot(122),plt.imshow(img3)
+    plt.show()
+    """
+    
 if __name__ == "__main__":
     main()

@@ -11,7 +11,7 @@ def load_points(data_dir='./data/points/01_x1.txt'):
     x = x.T
     return x
 
-def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectified/01/im1.png', toFilter=True, matcher_choice='bf'):
+def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectified/01/im1.png', matcher_choice='bf', filter_points=False, dist_threshold=0.2):
     sift = cv2.xfeatures2d.SIFT_create()
     img1 = cv2.imread(dir1)
     img2 = cv2.imread(dir2)
@@ -19,7 +19,7 @@ def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectif
     (kps1, descs1) = sift.detectAndCompute(img1, None)
     (kps2, descs2) = sift.detectAndCompute(img2, None)
     
-    print("Number of points detected: ", len(kps1))
+    print("Number of points detected by SIFT: ", len(kps1))
     
     matcher = None
     if matcher_choice == 'bf':
@@ -33,9 +33,9 @@ def pointsBySIFT(dir1='./data/non-rectified/01/im0.png', dir2='./data/non-rectif
     matches = matcher.knnMatch(descs1, descs2, k=2)
     
     good = []
-    if toFilter:
+    if filter_points:
         for m,n in matches:
-            if m.distance < 0.2*n.distance:
+            if m.distance < dist_threshold*n.distance:
                 good.append([m])
         matches = good
           
@@ -193,6 +193,9 @@ def main():
     
     parser.add_argument('--dir_img1', type=str, default='./data/non-rectified/01/im0.png')
     parser.add_argument('--dir_img2', type=str, default='./data/non-rectified/01/im1.png')
+    parser.add_argument('--point_matcher', type=str, choices=['bf', 'flann'], default='bf')
+    parser.add_argument('--filter_points', action='store_true', default=False)
+    parser.add_argument('--dist_threshold', type=float, default=0.2)
     parser.add_argument('--use_ransac', action='store_true', default=False)
     parser.add_argument('--min_data', type=int)
     parser.add_argument('--min_close_data', type=int)    
@@ -210,25 +213,9 @@ def main():
         my_print(x2.T)
     
     else:
-        x1, x2 = pointsBySIFT(args.dir_img1, args.dir_img2)
-        print("Number of points used: ", x1.shape[1])
-    
-    print("\n---------Matrix results---------")
-    
-    F = compute_fundamental(x1, x2)
-    print("\nF by custom function:")
-    my_print(F)
-    
-    F_norm = compute_fundamental_normalized(x1, x2)
-    print("\nF_norm by custom function:")
-    my_print(F_norm)
-    
-    F_cv, mask = cv2.findFundamentalMat(x1.T, x2.T, 2) # 2 --> 8-point algorithm
-    print("\nF by OpenCV package:")
-    my_print(F_cv)
-    
-    print("")
-    
+        x1, x2 = pointsBySIFT(args.dir_img1, args.dir_img2, matcher_choice=args.point_matcher, filter_points=args.filter_points, dist_threshold=args.dist_threshold)
+        print("Number of points used as good matches: ", x1.shape[1])
+       
     if args.use_ransac:
         n = args.min_data
         k = args.max_iteration
@@ -237,19 +224,52 @@ def main():
         
         model = RansacModel(debug=False, return_all=True)
         F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all)
-                
-        print("\nF by RANSAC trained with 8 points:")
-        my_print(F_ransac)
-        
-        print('\nNumber of inliners: ', len(data_ransac))
-        x1 = x1[:, data_ransac]
-        x2 = x2[:, data_ransac]
-        
-        F_ransac = compute_fundamental_normalized(x1, x2)
-        print("\nF by RANSAC with all best inliners:")
-        my_print(F_ransac)
     
-    """
+    N_in = len(data_ransac)
+    print('\nNumber of inliers: ', N_in)
+    if N_in == x1.shape[1]:
+        print("RANSAC failed: did not meet fit acceptance criteria")
+    else:
+        print("RANSAC succeeded")
+    
+    x1_inliers = x1[:, data_ransac]
+    x2_inliers = x2[:, data_ransac]
+    
+    x1_best8 = x1[:, data_ransac[:8]]
+    x2_best8 = x2[:, data_ransac[:8]]
+    
+    print("\n---------------Matrix results---------------")
+    
+    print("")
+    print("\n---1. By OpenCV function---")
+    
+    print("\n(1a) F_cv with best 8 points:")
+    F_cv, mask = cv2.findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv)
+    
+    print("\n(1b) F_cv with all {} inliers:".format(N_in))
+    F_cv, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv)
+    
+    print("")
+    print("\n---2. With normalization---")
+    
+    print("\n(2a) F_norm with best 8 points:")
+    my_print(compute_fundamental_normalized(x1_best8, x2_best8))
+    
+    print("\n(2b) F_norm with all {} inliers:".format(N_in))
+    my_print(compute_fundamental_normalized(x1_inliers, x2_inliers))
+    
+    print("")
+    print("\n---3. Without normalization---")
+    
+    print("\n(3a) F with best 8 points:")
+    my_print(compute_fundamental(x1_best8, x2_best8))
+    
+    print("\n(3b) F with all {} inliers:".format(N_in))
+    my_print(compute_fundamental(x1_inliers, x2_inliers))
+    
+    
     # Find epilines corresponding to points in right image (second image) and
     # drawing its lines on left image
     

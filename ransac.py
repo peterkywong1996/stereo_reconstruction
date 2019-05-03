@@ -41,9 +41,9 @@ def ransac(data,model,n,k,t,d,debug=False,return_all=False):
     """
     
     iterations = 0
-    bestfit = None
+    bestfit = model.fit(data[:8, :])
     besterr = np.inf
-    best_inlier_idxs = None
+    best_inlier_idxs = np.arange(data.shape[0])
     while iterations < k:
         maybe_idxs, test_idxs = random_partition(n,data.shape[0])
         maybeinliers = data[maybe_idxs,:]
@@ -68,9 +68,10 @@ def ransac(data,model,n,k,t,d,debug=False,return_all=False):
                 best_inlier_idxs = np.concatenate( (maybe_idxs, also_idxs) )
         iterations+=1
     if bestfit is None:
-        raise ValueError("did not meet fit acceptance criteria")
+        #raise ValueError("did not meet fit acceptance criteria")
+        return bestfit, {'inliers': best_inlier_idxs}
     if return_all:
-        return bestfit, {'inliers':best_inlier_idxs}
+        return bestfit, {'inliers': best_inlier_idxs}
     else:
         return bestfit
 

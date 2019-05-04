@@ -174,15 +174,31 @@ def my_print(mat):
         print(r)
 
 def drawlines(img1, img2, lines, pts1, pts2):
-    r, c = img1.shape[:2]
+    img1_ = img1.copy()
+    img2_ = img2.copy()
+    r, c = img1_.shape[:2]
     for r,pt1,pt2 in zip(lines,pts1.T,pts2.T):
         color = tuple(np.random.randint(0,255,3).tolist())
         x0,y0 = map(int, [0, -r[2]/r[1] ])
         x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
-        img1 = cv2.line(img1, (x0,y0), (x1,y1), color,1)
-        img1 = cv2.circle(img1,tuple(pt1[:2]),5,color,-1)
-        img2 = cv2.circle(img2,tuple(pt2[:2]),5,color,-1)
-    return img1,img2
+        img1_ = cv2.line(img1_, (x0,y0), (x1,y1), color,1)
+        img1_ = cv2.circle(img1_,tuple(pt1[:2]),5,color,-1)
+        img2_ = cv2.circle(img2_,tuple(pt2[:2]),5,color,-1)
+    return img1_,img2_
+
+def drawEpilines(img1,img2,pts1,pts2,F):
+    # Calculate and draw the epiplines in img1
+    lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
+    lines1 = lines1.reshape(-1,3)
+    imgLeft,_ = drawlines(img1,img2,lines1,pts1,pts2)
+
+    # Calculate and draw the epiplines in img2
+    lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
+    lines2 = lines2.reshape(-1,3)
+    imgRight,_ = drawlines(img2,img1,lines2,pts2,pts1)
+
+    return imgLeft, imgRight
+
 
 def main():    
     parser = argparse.ArgumentParser()
@@ -244,30 +260,34 @@ def main():
     print("\n---1. By OpenCV function---")
     
     print("\n(1a) F_cv with best 8 points:")
-    F_cv, mask = cv2.findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
-    my_print(F_cv)
+    F_cv_best8, mask = cv2.findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv_best8)
     
     print("\n(1b) F_cv with all {} inliers:".format(N_in))
-    F_cv, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
-    my_print(F_cv)
+    F_cv_sift, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv_sift)
     
     print("")
     print("\n---2. With normalization---")
     
     print("\n(2a) F_norm with best 8 points:")
-    my_print(compute_fundamental_normalized(x1_best8, x2_best8))
+    F_norm_best8 = compute_fundamental_normalized(x1_best8, x2_best8)
+    my_print(F_norm_best8)
     
     print("\n(2b) F_norm with all {} inliers:".format(N_in))
-    my_print(compute_fundamental_normalized(x1_inliers, x2_inliers))
+    F_norm_sift = compute_fundamental_normalized(x1_inliers, x2_inliers)
+    my_print(F_norm_sift)
     
     print("")
     print("\n---3. Without normalization---")
     
     print("\n(3a) F with best 8 points:")
-    my_print(compute_fundamental(x1_best8, x2_best8))
+    F_unnorm_best8 = compute_fundamental(x1_best8, x2_best8)
+    my_print(F_unnorm_best8)
     
     print("\n(3b) F with all {} inliers:".format(N_in))
-    my_print(compute_fundamental(x1_inliers, x2_inliers))
+    F_unnorm_sift = compute_fundamental(x1_inliers, x2_inliers)
+    my_print(F_unnorm_sift)
     
     
     # Find epilines corresponding to points in right image (second image) and
@@ -275,19 +295,26 @@ def main():
     
     img1 = cv2.imread(args.dir_img1)
     img2 = cv2.imread(args.dir_img2)
-    
-    lines1 = cv2.computeCorrespondEpilines(x2.T, 2, F_norm)
-    lines1 = lines1.reshape(-1,3)
-    img5,img6 = drawlines(img1,img2,lines1,x1,x2)
-    
-    lines2 = cv2.computeCorrespondEpilines(x1.T, 1, F_norm)
-    lines2 = lines2.reshape(-1,3)
-    img3,img4 = drawlines(img2,img1,lines2,x2,x1)
-    
-    plt.subplot(121),plt.imshow(img5)
-    plt.subplot(122),plt.imshow(img3)
+
+    imgCvBest8Left, imgCvBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_cv_best8)
+    imgCvSiftLeft, imgCvSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_sift)
+
+    imgNormBest8Left, imgNormBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_norm_best8)
+    imgNormSiftLeft, imgNormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_sift)
+
+    imgUnnormBest8Left, imgUnnormBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_unnorm_best8)
+    imgUnnormSiftLeft, imgUnnormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_sift)
+
+    plt.subplot(2,2,1),plt.imshow(imgCvSiftLeft)
+    plt.subplot(2,2,2),plt.imshow(imgCvSiftRight)
+
+    plt.subplot(2,2,3),plt.imshow(imgNormSiftLeft)
+    plt.subplot(2,2,4),plt.imshow(imgNormSiftRight)
     plt.show()
-    """
+
+    print("imgCvSiftLeft/imgNormSiftLeft? {}".format(
+        np.count_nonzero(imgCvSiftLeft != imgNormSiftLeft) > 0
+    ))
     
 if __name__ == "__main__":
     main()

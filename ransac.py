@@ -2,7 +2,7 @@ import numpy as np
 from scipy import dot
 from scipy.linalg import lstsq
 
-def ransac(data,model,n,k,t,d,debug=False,return_all=False):
+def ransac(data,model,n,k,t,d,debug=False,return_all=False, avg_err=None):
     """
     Given:
         data - a set of observed data points
@@ -11,6 +11,7 @@ def ransac(data,model,n,k,t,d,debug=False,return_all=False):
         k - the maximum number of iterations allowed in the algorithm
         t - a threshold value for determining when a data point fits a model
         d - the number of close data values required to assert that a model fits well to data
+        avg_err - the average error that a model is rejected if it passes. None means no such rejection.
     Return:
         bestfit - model parameters which best fit the data (or nil if no good model is found)
     iterations = 0
@@ -62,7 +63,7 @@ def ransac(data,model,n,k,t,d,debug=False,return_all=False):
             bettermodel = model.fit(betterdata)
             better_errs = model.get_error( betterdata, bettermodel)
             thiserr = np.mean( better_errs )
-            if thiserr < besterr:
+            if (avg_err is None or thiserr <= avg_err) and thiserr < besterr:
                 bestfit = bettermodel
                 besterr = thiserr
                 best_inlier_idxs = np.concatenate( (maybe_idxs, also_idxs) )

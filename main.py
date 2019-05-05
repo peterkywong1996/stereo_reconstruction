@@ -159,13 +159,13 @@ class RansacModel(object):
         # return error per point
         return err
 
-def F_from_ransac(x1, x2, model, n, k, t, d, debug=False, return_all=False):
+def F_from_ransac(x1, x2, model, n, k, t, d, debug=False, return_all=False, avg_err=None):
     import ransac
     
     data = np.vstack((x1,x2))
     
     # compute F and return with inlier index
-    F, ransac_data = ransac.ransac(data.T, model, n, k, t, d, debug, return_all)
+    F, ransac_data = ransac.ransac(data.T, model, n, k, t, d, debug, return_all, avg_err)
     
     return F, ransac_data['inliers']
 
@@ -173,32 +173,41 @@ def my_print(mat):
     for r in mat:
         print(r)
 
-def drawlines(img1, img2, lines, pts1, pts2):
+def drawlines(img1, lines, pts1, pts2):
     img1_ = img1.copy()
-    img2_ = img2.copy()
     r, c = img1_.shape[:2]
-    for r,pt1,pt2 in zip(lines,pts1.T,pts2.T):
+    
+    np.random.seed(1)
+    for r,pt1,pt2 in zip(lines,pts1,pts2):
         color = tuple(np.random.randint(0,255,3).tolist())
         x0,y0 = map(int, [0, -r[2]/r[1] ])
         x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
         img1_ = cv2.line(img1_, (x0,y0), (x1,y1), color,1)
         img1_ = cv2.circle(img1_,tuple(pt1[:2]),5,color,-1)
-        img2_ = cv2.circle(img2_,tuple(pt2[:2]),5,color,-1)
-    return img1_,img2_
+    return img1_
 
 def drawEpilines(img1,img2,pts1,pts2,F):
     # Calculate and draw the epiplines in img1
     lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
     lines1 = lines1.reshape(-1,3)
-    imgLeft,_ = drawlines(img1,img2,lines1,pts1,pts2)
+    imgLeft = drawlines(img1,lines1,pts1,pts2)
 
     # Calculate and draw the epiplines in img2
     lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
     lines2 = lines2.reshape(-1,3)
-    imgRight,_ = drawlines(img2,img1,lines2,pts2,pts1)
+    imgRight = drawlines(img2,lines2,pts2,pts1)
 
     return imgLeft, imgRight
 
+def findAverageError(pts1, pts2):
+    model = RansacModel(debug=False, return_all=True)
+    data = np.vstack((pts1, pts2))
+
+    maybemodel = model.fit(data.T)
+    print(model.get_error(data.T, maybemodel))
+    r = np.mean(model.get_error(data.T, maybemodel))
+    print(r)
+    return r
 
 def main():    
     parser = argparse.ArgumentParser()
@@ -217,6 +226,8 @@ def main():
     parser.add_argument('--min_close_data', type=int)    
     parser.add_argument('--max_iteration', type=int)
     parser.add_argument('--max_error', type=float)
+    parser.add_argument('--use_manual_baseline', action='store_true', default=False,
+                        help='Impose RANSAC rejection by the average error found with 8 manual points')
     args = parser.parse_args()
     
     if args.manual:
@@ -237,9 +248,16 @@ def main():
         k = args.max_iteration
         t = args.max_error
         d = args.min_close_data
+
+        avg_8pts_err = None
+        if args.use_manual_baseline:
+            x1_manual = load_points(args.dir_x1)
+            x2_manual = load_points(args.dir_x2)
+            avg_8pts_err = findAverageError(x1_manual, x2_manual)
         
         model = RansacModel(debug=False, return_all=True)
-        F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all)
+        F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all, avg_err=avg_8pts_err)
+    
     
     N_in = len(data_ransac)
     print('\nNumber of inliers: ', N_in)
@@ -296,23 +314,34 @@ def main():
     img1 = cv2.imread(args.dir_img1)
     img2 = cv2.imread(args.dir_img2)
 
-    imgCvBest8Left, imgCvBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_cv_best8)
+    imgCvBest8Left, imgCvBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_cv_best8)
     imgCvSiftLeft, imgCvSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_sift)
 
-    imgNormBest8Left, imgNormBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_norm_best8)
+    imgNormBest8Left, imgNormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_norm_best8)
     imgNormSiftLeft, imgNormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_sift)
 
-    imgUnnormBest8Left, imgUnnormBest8Right = drawEpilines(img1, img2, x1.T, x2.T, F_unnorm_best8)
+    imgUnnormBest8Left, imgUnnormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_unnorm_best8)
     imgUnnormSiftLeft, imgUnnormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_sift)
 
-    plt.subplot(2,2,1),plt.imshow(imgCvSiftLeft)
-    plt.subplot(2,2,2),plt.imshow(imgCvSiftRight)
+    f1= plt.figure(1)
+    plt.subplot(2,2,1),plt.imshow(imgCvBest8Left)
+    plt.subplot(2,2,2),plt.imshow(imgCvBest8Right)
+
+    plt.subplot(2,2,3),plt.imshow(imgCvSiftLeft)
+    plt.subplot(2,2,4),plt.imshow(imgCvSiftRight)
+    f1.show()
+
+    f2 = plt.figure(2)
+    plt.subplot(2,2,1),plt.imshow(imgNormBest8Left)
+    plt.subplot(2,2,2),plt.imshow(imgNormBest8Right)
 
     plt.subplot(2,2,3),plt.imshow(imgNormSiftLeft)
     plt.subplot(2,2,4),plt.imshow(imgNormSiftRight)
-    plt.show()
+    f2.show()
+    
+    plt.waitforbuttonpress(0)
 
-    print("imgCvSiftLeft/imgNormSiftLeft? {}".format(
+    print("imgCvSiftLeft/imgNormSiftLeft different? {}".format(
         np.count_nonzero(imgCvSiftLeft != imgNormSiftLeft) > 0
     ))
     

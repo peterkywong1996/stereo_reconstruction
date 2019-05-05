@@ -1,9 +1,12 @@
 import numpy as np
 from scipy import linalg
+import scipy.misc
 from math import pow, sqrt
 import cv2
 import argparse
 from matplotlib import pyplot as plt
+import os
+import re
 
 def load_points(data_dir='./data/points/01_x1.txt'):
     x = np.loadtxt(data_dir, delimiter=',')
@@ -197,6 +200,10 @@ def drawEpilines(img1,img2,pts1,pts2,F):
     lines2 = lines2.reshape(-1,3)
     imgRight = drawlines(img2,lines2,pts2,pts1)
 
+    print("lines1/lines2 different? {}".format(
+        np.count_nonzero(lines1 != lines2) > 0
+    ))
+
     return imgLeft, imgRight
 
 def findAverageError(pts1, pts2):
@@ -228,6 +235,8 @@ def main():
     parser.add_argument('--max_error', type=float)
     parser.add_argument('--use_manual_baseline', action='store_true', default=False,
                         help='Impose RANSAC rejection by the average error found with 8 manual points')
+    parser.add_argument('--save_result', action='store_true', default=False)
+    parser.add_argument('--result_id', type=int)
     args = parser.parse_args()
     
     if args.manual:
@@ -258,19 +267,22 @@ def main():
         model = RansacModel(debug=False, return_all=True)
         F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all, avg_err=avg_8pts_err)
     
-    
-    N_in = len(data_ransac)
-    print('\nNumber of inliers: ', N_in)
-    if N_in == x1.shape[1]:
-        print("RANSAC failed: did not meet fit acceptance criteria")
+        N_in = len(data_ransac)
+        print('\nNumber of inliers: ', N_in)
+        if N_in == x1.shape[1]:
+            print("RANSAC failed: did not meet fit acceptance criteria")
+        else:
+            print("RANSAC succeeded")
+        
+        x1_inliers = x1[:, data_ransac]
+        x2_inliers = x2[:, data_ransac]
+        
+        x1_best8 = x1[:, data_ransac[:8]]
+        x2_best8 = x2[:, data_ransac[:8]]
     else:
-        print("RANSAC succeeded")
-    
-    x1_inliers = x1[:, data_ransac]
-    x2_inliers = x2[:, data_ransac]
-    
-    x1_best8 = x1[:, data_ransac[:8]]
-    x2_best8 = x2[:, data_ransac[:8]]
+        x1_inliers = x1_best8 = x1
+        x2_inliers = x2_best8 = x2
+        N_in = 8
     
     print("\n---------------Matrix results---------------")
     
@@ -282,8 +294,8 @@ def main():
     my_print(F_cv_best8)
     
     print("\n(1b) F_cv with all {} inliers:".format(N_in))
-    F_cv_sift, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
-    my_print(F_cv_sift)
+    F_cv_all, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv_all)
     
     print("")
     print("\n---2. With normalization---")
@@ -293,8 +305,8 @@ def main():
     my_print(F_norm_best8)
     
     print("\n(2b) F_norm with all {} inliers:".format(N_in))
-    F_norm_sift = compute_fundamental_normalized(x1_inliers, x2_inliers)
-    my_print(F_norm_sift)
+    F_norm_all = compute_fundamental_normalized(x1_inliers, x2_inliers)
+    my_print(F_norm_all)
     
     print("")
     print("\n---3. Without normalization---")
@@ -304,8 +316,8 @@ def main():
     my_print(F_unnorm_best8)
     
     print("\n(3b) F with all {} inliers:".format(N_in))
-    F_unnorm_sift = compute_fundamental(x1_inliers, x2_inliers)
-    my_print(F_unnorm_sift)
+    F_unnorm_all = compute_fundamental(x1_inliers, x2_inliers)
+    my_print(F_unnorm_all)
     
     
     # Find epilines corresponding to points in right image (second image) and
@@ -315,35 +327,85 @@ def main():
     img2 = cv2.imread(args.dir_img2)
 
     imgCvBest8Left, imgCvBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_cv_best8)
-    imgCvSiftLeft, imgCvSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_sift)
+    imgCvAllLeft, imgCvAllRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_all)
 
     imgNormBest8Left, imgNormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_norm_best8)
-    imgNormSiftLeft, imgNormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_sift)
+    imgNormAllLeft, imgNormAllRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_all)
 
     imgUnnormBest8Left, imgUnnormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_unnorm_best8)
-    imgUnnormSiftLeft, imgUnnormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_sift)
+    imgUnnormAllLeft, imgUnnormAllRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_all)
 
     f1= plt.figure(1)
     plt.subplot(2,2,1),plt.imshow(imgCvBest8Left)
     plt.subplot(2,2,2),plt.imshow(imgCvBest8Right)
 
-    plt.subplot(2,2,3),plt.imshow(imgCvSiftLeft)
-    plt.subplot(2,2,4),plt.imshow(imgCvSiftRight)
+    plt.subplot(2,2,3),plt.imshow(imgCvAllLeft)
+    plt.subplot(2,2,4),plt.imshow(imgCvAllRight)
     f1.show()
 
     f2 = plt.figure(2)
     plt.subplot(2,2,1),plt.imshow(imgNormBest8Left)
     plt.subplot(2,2,2),plt.imshow(imgNormBest8Right)
 
-    plt.subplot(2,2,3),plt.imshow(imgNormSiftLeft)
-    plt.subplot(2,2,4),plt.imshow(imgNormSiftRight)
+    plt.subplot(2,2,3),plt.imshow(imgNormAllLeft)
+    plt.subplot(2,2,4),plt.imshow(imgNormAllRight)
     f2.show()
-    
-    plt.waitforbuttonpress(0)
 
-    print("imgCvSiftLeft/imgNormSiftLeft different? {}".format(
-        np.count_nonzero(imgCvSiftLeft != imgNormSiftLeft) > 0
-    ))
+    if args.save_result:
+        # Save data
+        result_id = args.result_id
+        if result_id is None:
+            dirs = os.listdir('results', )
+            if isinstance(dirs, str):
+                dirs = [dirs]
+            
+            result_id = 1
+            if len(dirs) > 0:
+                res = re.match('result\_([0-9]*).*', dirs[-1])
+                if res is not None:
+                    result_id = int(res.group(1)) + 1
+
+        result_dir = 'results/result_{}/'.format(result_id)
+        print('Result dir.: {}'.format(result_dir))
+
+        try:
+            os.makedirs(result_dir, exist_ok=True)
+        except OSError as err:
+            print(err)
+        
+        scipy.misc.imsave('{}/cv-best8-left.jpg'.format(result_dir), imgCvBest8Left)
+        scipy.misc.imsave('{}/cv-best8-right.jpg'.format(result_dir), imgCvBest8Right)
+        scipy.misc.imsave('{}/cv-all-left.jpg'.format(result_dir), imgCvBest8Left)
+        scipy.misc.imsave('{}/cv-all-right.jpg'.format(result_dir), imgCvBest8Right)
+        f1.savefig('{}/cv-fig.jpg'.format(result_dir), dpi=450)
+
+        scipy.misc.imsave('{}/norm-best8-left.jpg'.format(result_dir), imgNormBest8Left)
+        scipy.misc.imsave('{}/norm-best8-right.jpg'.format(result_dir), imgNormBest8Right)
+        scipy.misc.imsave('{}/norm-all-left.jpg'.format(result_dir), imgNormAllLeft)
+        scipy.misc.imsave('{}/norm-all-right.jpg'.format(result_dir), imgNormAllRight)
+        f2.savefig('{}/norm-fig.jpg'.format(result_dir), dpi=450)
+
+        scipy.misc.imsave('{}/unnorm-best8-left.jpg'.format(result_dir), imgUnnormBest8Left)
+        scipy.misc.imsave('{}/unnorm-best8-right.jpg'.format(result_dir), imgUnnormBest8Right)
+        scipy.misc.imsave('{}/unnorm-all-left.jpg'.format(result_dir), imgUnnormAllLeft)
+        scipy.misc.imsave('{}/unnorm-all-right.jpg'.format(result_dir), imgUnnormAllRight)
+
+        params = """dist_threshold: {}
+max_iteration: {}
+max_error: {}
+use_manual_baseline: {}""".format(args.dist_threshold, args.max_iteration, args.max_error, args.use_manual_baseline)
+        
+        with open('{}/params.txt'.format(result_dir), 'w') as f:
+            f.write(params)
+        
+        with open('results/index.txt', 'a') as f:
+            f.write('{}: {}\n'.format(result_dir, params.replace('\n', ' ')))
+    else:
+        plt.waitforbuttonpress(0)
+        
+    # print("imgCvSiftLeft/imgNormSiftLeft different? {}".format(
+    #     np.count_nonzero(imgCvSiftLeft != imgNormSiftLeft) > 0
+    # ))
     
 if __name__ == "__main__":
     main()

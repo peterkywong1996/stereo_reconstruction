@@ -16,7 +16,7 @@ def search_bounds(column, block_size, width):
     return left_bound, right_bound, step
 
 def computeDisparityBySSD(d_map, left_img, right_img, block_size):
-    height, width, channels = img_left.shape
+    height, width, channels = left_img.shape
 
     for row in range(height - block_size + 1):
         for col in range(width - block_size + 1):
@@ -26,7 +26,6 @@ def computeDisparityBySSD(d_map, left_img, right_img, block_size):
             left_pixel = left_img[row:row + block_size, col:col + block_size]
             l_bound, r_bound, step = search_bounds(col, block_size, width)
 
-            # for i in range(l_bound, r_bound - padding*2):
             for i in range(l_bound, r_bound, step):
                 right_pixel = right_img[row:row + block_size, i:i + block_size]
                 ssd = np.sum((left_pixel - right_pixel) ** 2)
@@ -90,6 +89,7 @@ def main():
     parser.add_argument('--dir_img2', type=str, default='./data/rectified/01/im1.png')
     parser.add_argument('--result_dir', type=str, default='./result/01')
     parser.add_argument('--use_ssd', action='store_true', default=False)
+    # if using SSD, only block_size has effect
     
     parser.add_argument('--block_size', type=int, default=5)
     parser.add_argument('--minDisparity', type=int, default=0)
@@ -107,8 +107,8 @@ def main():
     
     if args.use_ssd:
         d_map_ssd = D_MAP_INIT.copy()
-        d_map_ssd = computeDisparityBySSD(d_map, left_img, right_img, args.block_size)
-        #save_disparity(args.result_dir, 'ssd', d_map_ssd)
+        d_map_ssd = computeDisparityBySSD(d_map_ssd, left_img, right_img, args.block_size)
+        save_disparity(args.result_dir, 'ssd', d_map_ssd)
         show_disparity(d_map_ssd)
     
     # FILTER Parameters

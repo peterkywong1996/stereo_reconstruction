@@ -173,29 +173,29 @@ def my_print(mat):
     for r in mat:
         print(r)
 
-def drawlines(img1, img2, lines, pts1, pts2):
+def drawlines(img1, lines, pts1, pts2):
     img1_ = img1.copy()
-    img2_ = img2.copy()
     r, c = img1_.shape[:2]
-    for r,pt1,pt2 in zip(lines,pts1.T,pts2.T):
+    
+    np.random.seed(1)
+    for r,pt1,pt2 in zip(lines,pts1,pts2):
         color = tuple(np.random.randint(0,255,3).tolist())
         x0,y0 = map(int, [0, -r[2]/r[1] ])
         x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
         img1_ = cv2.line(img1_, (x0,y0), (x1,y1), color,1)
         img1_ = cv2.circle(img1_,tuple(pt1[:2]),5,color,-1)
-        img2_ = cv2.circle(img2_,tuple(pt2[:2]),5,color,-1)
-    return img1_,img2_
+    return img1_
 
 def drawEpilines(img1,img2,pts1,pts2,F):
     # Calculate and draw the epiplines in img1
     lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
     lines1 = lines1.reshape(-1,3)
-    imgLeft,_ = drawlines(img1,img2,lines1,pts1,pts2)
+    imgLeft = drawlines(img1,lines1,pts1,pts2)
 
     # Calculate and draw the epiplines in img2
     lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
     lines2 = lines2.reshape(-1,3)
-    imgRight,_ = drawlines(img2,img1,lines2,pts2,pts1)
+    imgRight = drawlines(img2,lines2,pts2,pts1)
 
     return imgLeft, imgRight
 

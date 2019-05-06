@@ -3,6 +3,18 @@ import argparse
 import numpy as np
 import cv2
 
+def add_padding(input, padding):
+    rows = input.shape[0]
+    columns = input.shape[1]
+    channels = input.shape[2]
+    left = padding
+    right = columns + padding
+    
+    output = np.zeros((rows, columns + padding * 2, channels), dtype=float)   
+    output[:, left:right, :] = input
+    
+    return output.astype(np.uint8)
+
 def search_bounds(column, block_size, width):
     disparity_range = 75
     padding = block_size // 2
@@ -32,8 +44,11 @@ def computeDisparityBySSD(d_map, left_img, right_img, block_size):
                 if ssd < bestdist:
                     bestdist = ssd
                     shift = i
+                    
             d_map[row, col] = shift - col
         print('Calculated Disparity at '+str(row)+' row')
+    
+    return d_map
         
 
 def computeDisparityBySGBM(d_map, left_img, right_img, filter_params, args):
@@ -75,7 +90,7 @@ def show_disparity(d_map):
 
 def save_disparity(result_dir, fname, d_map):
     if not os.path.exists(result_dir):
-        os.mkdir(result_dir)
+        os.makedirs(result_dir)
     
     save_dir = os.path.join(result_dir, fname)
     np.save(save_dir, d_map)
@@ -103,10 +118,13 @@ def main():
     
     left_img = cv2.imread(args.dir_img1)
     right_img = cv2.imread(args.dir_img2)
-    D_MAP_INIT = np.zeros(left_img.shape, dtype=float)
+    d_map_ssd = np.zeros(left_img.shape, dtype=float)
+    
+    padding = args.block_size // 2
+    left_img = add_padding(left_img, padding)
+    right_img = add_padding(right_img, padding)
     
     if args.use_ssd:
-        d_map_ssd = D_MAP_INIT.copy()
         d_map_ssd = computeDisparityBySSD(d_map_ssd, left_img, right_img, args.block_size)
         save_disparity(args.result_dir, 'ssd', d_map_ssd)
         show_disparity(d_map_ssd)
@@ -117,7 +135,7 @@ def main():
         'sigma': 1.2
     }
     
-    d_map_sgbm = D_MAP_INIT.copy()
+    d_map_sgbm = np.zeros(left_img.shape, dtype=float)
     d_map_sgbm = computeDisparityBySGBM(d_map_sgbm, left_img, right_img, filter_params, args)
     
     save_disparity(args.result_dir, 'sgbm', d_map_sgbm)

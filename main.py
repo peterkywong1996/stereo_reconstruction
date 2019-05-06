@@ -375,8 +375,8 @@ def main():
         
         scipy.misc.imsave('{}/cv-best8-left.jpg'.format(result_dir), imgCvBest8Left)
         scipy.misc.imsave('{}/cv-best8-right.jpg'.format(result_dir), imgCvBest8Right)
-        scipy.misc.imsave('{}/cv-all-left.jpg'.format(result_dir), imgCvBest8Left)
-        scipy.misc.imsave('{}/cv-all-right.jpg'.format(result_dir), imgCvBest8Right)
+        scipy.misc.imsave('{}/cv-all-left.jpg'.format(result_dir), imgCvAllLeft)
+        scipy.misc.imsave('{}/cv-all-right.jpg'.format(result_dir), imgCvAllRight)
         f1.savefig('{}/cv-fig.jpg'.format(result_dir), dpi=450)
 
         scipy.misc.imsave('{}/norm-best8-left.jpg'.format(result_dir), imgNormBest8Left)

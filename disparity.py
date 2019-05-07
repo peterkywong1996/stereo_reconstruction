@@ -4,31 +4,49 @@ import numpy as np
 import cv2
 
 
-def computeDisparityBySSD(left_img, right_img, block_size, numDisparities):
-    d_map = np.zeros(left_img.shape, dtype=float)
-    height, width, channels = left_img.shape
+def get_img_shape(img):
+    if len(img.shape) == 2:
+        return img.shape[0], img.shape[1], None
+    elif len(img.shape) == 3:
+        return img.shape
+    else:
+        return [None]*3
     
-    for i in range(height):
-        for j in range(block_size + numDisparities, width - block_size + 1):
+def add_padding(img, padding):   
+    height, width, channels = get_img_shape(img)
+    if channels:
+        output = np.zeros((height, width + padding, channels), dtype=float)
+    else:
+        output = np.zeros((height, width + padding), dtype=float)
+    
+    output[:, padding:] = img
+    
+    return output.astype(np.uint8)
+
+
+def computeDisparityBySSD(img_L, img_R, block_size, numDisparities):   
+    height, width, _ = get_img_shape(img_L)
+    disparity_map = np.zeros(img_L.shape, dtype=float)
+        
+    for h in range(height):
+        for w in range(block_size + numDisparities, width - block_size + 1):
             ssd = np.empty([numDisparities, 1])
-            l = left_img[i, (j - block_size):(j + block_size)]
+            block_L = img_L[h, (w - block_size):(w + block_size)]
             
             for d in range(numDisparities):
-                r = right_img[i, (j - d - block_size):(j - d + block_size)]
-                ssd[d] = np.sum((l[:,:]-r[:,:])**2)
+                block_R = img_R[h, (w - d - block_size):(w - d + block_size)]
+                ssd[d] = np.sum(( block_L[:,:] - block_R[:,:] ) ** 2)
             
-            d_map[i, j] = np.argmin(ssd)
-            
-        print("Completed {} row".format(str(i)))
+            disparity_map[h, w] = np.argmin(ssd)
     
-    d_map = cv2.normalize(src=d_map, dst=d_map, beta=0, alpha=255, norm_type=cv2.NORM_MINMAX)
-    d_map = np.uint8(d_map)
+    disparity_map = cv2.normalize(src=disparity_map, dst=disparity_map, beta=0, alpha=255, norm_type=cv2.NORM_MINMAX)
+    disparity_map = np.uint8(disparity_map)
     
-    return d_map
+    return disparity_map
 
 
-def computeDisparityBySGBM(left_img, right_img, filter_params, args):
-    sgbm_left = cv2.StereoSGBM_create(
+def computeDisparityBySGBM(img_L, img_R, filter_params, args):   
+    sgbm_L = cv2.StereoSGBM_create(
         minDisparity=args.minDisparity,
         numDisparities=args.numDisparities,
         blockSize=args.block_size,
@@ -39,37 +57,39 @@ def computeDisparityBySGBM(left_img, right_img, filter_params, args):
         P1=8*3*args.block_size**2,
         P2=32*3*args.block_size**2
     )
-    sgbm_right = cv2.ximgproc.createRightMatcher(sgbm_left)
+    sgbm_R = cv2.ximgproc.createRightMatcher(sgbm_L)
     
-    wls_filter = cv2.ximgproc.createDisparityWLSFilter(matcher_left=sgbm_left)
+    wls_filter = cv2.ximgproc.createDisparityWLSFilter(matcher_left=sgbm_L)
     wls_filter.setLambda(filter_params['lambda'])
     wls_filter.setSigmaColor(filter_params['sigma'])
         
-    d_map_left = sgbm_left.compute(left_img, right_img)
-    d_map_right = sgbm_right.compute(left_img, right_img)
+    disparity_map_L = sgbm_L.compute(img_L, img_R)
+    disparity_map_R = sgbm_R.compute(img_L, img_R)
     
-    d_map_left = np.int16(d_map_left)
-    d_map_right = np.int16(d_map_right)
+    disparity_map_L = np.int16(disparity_map_L)
+    disparity_map_R = np.int16(disparity_map_R)
     
-    d_map = wls_filter.filter(d_map_left, left_img, None, d_map_right)
+    disparity_map = wls_filter.filter(disparity_map_L, img_L, None, disparity_map_R)
     
-    d_map = cv2.normalize(src=d_map, dst=d_map, beta=0, alpha=255, norm_type=cv2.NORM_MINMAX)
-    d_map = np.uint8(d_map)
+    disparity_map = cv2.normalize(src=disparity_map, dst=disparity_map, beta=0, alpha=255, norm_type=cv2.NORM_MINMAX)
+    disparity_map = np.uint8(disparity_map)
 
-    return d_map
+    return disparity_map
 
 
-def show_disparity(d_map):
-    cv2.imshow('disparity', d_map)
+def show_disparity(disparity_map):
+    cv2.imshow('disparity', disparity_map)
     cv2.waitKey(0)
     
 
-def save_disparity(result_dir, fname, d_map):
+def save_disparity(result_dir, fname, disparity_map):
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
     
     save_dir = os.path.join(result_dir, fname)
-    np.save(save_dir, d_map)
+    np.save(save_dir, disparity_map)
+    cv2.imwrite(save_dir+'.png', disparity_map)
+    
     print('Disparity map saved as ', save_dir)
     
     
@@ -80,7 +100,7 @@ def main():
     parser.add_argument('--dir_img2', type=str, default='./data/rectified/01/im1.png')
     parser.add_argument('--result_dir', type=str, default='./result/01')
     parser.add_argument('--use_ssd', action='store_true', default=False)
-    # if using SSD, only block_size has effect
+    # SSD is influenced by block_size and numDisparities only
     
     parser.add_argument('--block_size', type=int, default=5)
     parser.add_argument('--minDisparity', type=int, default=0)
@@ -92,13 +112,18 @@ def main():
         
     args = parser.parse_args()
     
-    left_img = cv2.imread(args.dir_img1)
-    right_img = cv2.imread(args.dir_img2)
+    img_L = cv2.imread(args.dir_img1)
+    img_R = cv2.imread(args.dir_img2)
     
+    padding = args.numDisparities
+    img_L = add_padding(img_L, padding)
+    img_R = add_padding(img_R, padding)
+
     if args.use_ssd:
-        d_map_ssd = computeDisparityBySSD(left_img, right_img, args.block_size, args.numDisparities)
-        save_disparity(args.result_dir, 'ssd', d_map_ssd)
-        show_disparity(d_map_ssd)
+        disparity_map_ssd = computeDisparityBySSD(img_L, img_R, args.block_size, args.numDisparities)
+        disparity_map_ssd = disparity_map_ssd[:, padding:]
+        save_disparity(args.result_dir, 'ssd', disparity_map_ssd)
+        show_disparity(disparity_map_ssd)
     
     # FILTER Parameters
     filter_params = {
@@ -106,10 +131,10 @@ def main():
         'sigma': 1.2
     }
     
-    d_map_sgbm = computeDisparityBySGBM(left_img, right_img, filter_params, args)
-    
-    save_disparity(args.result_dir, 'sgbm', d_map_sgbm)
-    show_disparity(d_map_sgbm)
+    disparity_map_sgbm = computeDisparityBySGBM(img_L, img_R, filter_params, args)
+    disparity_map_sgbm = disparity_map_sgbm[:, padding:]
+    save_disparity(args.result_dir, 'sgbm', disparity_map_sgbm)
+    show_disparity(disparity_map_sgbm)
 
 if __name__ == "__main__":
     main()

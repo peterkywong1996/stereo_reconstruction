@@ -209,7 +209,10 @@ def drawEpilines(img1,img2,pts1,pts2,F):
     imgLeftRectified = cv2.warpPerspective(imgLeft, h1, (img1.shape[1], img1.shape[0]))
     imgRightRectified = cv2.warpPerspective(imgRight, h2, (img2.shape[1], img2.shape[0]))
 
-    return imgLeft, imgRight, imgLeftRectified, imgRightRectified
+    imgLeftRectifiedNoEpi = cv2.warpPerspective(img1, h1, (img1.shape[1], img1.shape[0]))
+    imgRightRectifiedNoEpi = cv2.warpPerspective(img2, h2, (img2.shape[1], img2.shape[0]))
+
+    return imgLeft, imgRight, imgLeftRectified, imgRightRectified, imgLeftRectifiedNoEpi, imgRightRectifiedNoEpi
 
 def findAverageError(pts1, pts2):
     model = RansacModel(debug=False, return_all=True)
@@ -295,7 +298,7 @@ def main():
     print("\n---1. By OpenCV function---")
     
     print("\n(1a) F_cv with best 8 points:")
-    F_cv_best8, mask = cv2.findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
+    F_cv_best8, mask = cv2. findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
     my_print(F_cv_best8)
     
     print("\n(1b) F_cv with all {} inliers:".format(N_in))
@@ -330,19 +333,19 @@ def main():
     img1 = cv2.imread(args.dir_img1)
     img2 = cv2.imread(args.dir_img2)
 
-    imgCvBest8Left, imgCvBest8Right, imgCvBest8LeftRec, imgCvBest8RightRec \
+    imgCvBest8Left, imgCvBest8Right, imgCvBest8LeftRec, imgCvBest8RightRec, imgCvBest8LeftRecNE, imgCvBest8RightRecNE \
         = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_cv_best8)
-    imgCvAllLeft, imgCvAllRight, imgCvAllLeftRec, imgCvAllRightRec \
+    imgCvAllLeft, imgCvAllRight, imgCvAllLeftRec, imgCvAllRightRec, imgCvAllLeftRecNE, imgCvAllRightRecNE \
         = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_all)
 
-    imgNormBest8Left, imgNormBest8Right, imgNormBest8LeftRec, imgNormBest8RightRec \
+    imgNormBest8Left, imgNormBest8Right, imgNormBest8LeftRec, imgNormBest8RightRec, imgNormBest8LeftRecNE, imgNormBest8RightRecNE \
         = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_norm_best8)
-    imgNormAllLeft, imgNormAllRight, imgNormAllLeftRec, imgNormAllRightRec \
+    imgNormAllLeft, imgNormAllRight, imgNormAllLeftRec, imgNormAllRightRec, imgNormAllLeftRecNE, imgNormAllRightRecNE \
         = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_all)
 
-    imgUnnormBest8Left, imgUnnormBest8Right, imgUnnormBest8LeftRec, imgUnnormBest8RightRec \
+    imgUnnormBest8Left, imgUnnormBest8Right, imgUnnormBest8LeftRec, imgUnnormBest8RightRec, imgUnnormBest8LeftRecNE, imgUnnormBest8RightRecNE \
         = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_unnorm_best8)
-    imgUnnormAllLeft, imgUnnormAllRight, imgUnnormAllLeftRec, imgUnnormAllRightRec \
+    imgUnnormAllLeft, imgUnnormAllRight, imgUnnormAllLeftRec, imgUnnormAllRightRec, imgUnnormAllLeftRecNE, imgUnnormAllRightRecNE \
         = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_all)
 
     f1= plt.figure(1)
@@ -419,10 +422,14 @@ def main():
         scipy.misc.imsave('{}/cv-best8-right.jpg'.format(result_dir), imgCvBest8Right)
         scipy.misc.imsave('{}/cv-best8-left-rec.jpg'.format(result_dir), imgCvBest8LeftRec)
         scipy.misc.imsave('{}/cv-best8-right-rec.jpg'.format(result_dir), imgCvBest8RightRec)
+        scipy.misc.imsave('{}/cv-best8-left-rec-plain.jpg'.format(result_dir), imgCvBest8LeftRecNE)
+        scipy.misc.imsave('{}/cv-best8-right-rec-plain.jpg'.format(result_dir), imgCvBest8RightRecNE)
         scipy.misc.imsave('{}/cv-all-left.jpg'.format(result_dir), imgCvAllLeft)
         scipy.misc.imsave('{}/cv-all-right.jpg'.format(result_dir), imgCvAllRight)
         scipy.misc.imsave('{}/cv-all-left-rec.jpg'.format(result_dir), imgCvAllLeftRec)
         scipy.misc.imsave('{}/cv-all-right-rec.jpg'.format(result_dir), imgCvAllRightRec)
+        scipy.misc.imsave('{}/cv-all-left-rec-plain.jpg'.format(result_dir), imgCvAllLeftRecNE)
+        scipy.misc.imsave('{}/cv-all-right-rec-plain.jpg'.format(result_dir), imgCvAllRightRecNE)
         f1.savefig('{}/cv-best8-fig.jpg'.format(result_dir), dpi=450)
         f11.savefig('{}/cv-all-fig.jpg'.format(result_dir), dpi=450)
 
@@ -430,10 +437,14 @@ def main():
         scipy.misc.imsave('{}/norm-best8-right.jpg'.format(result_dir), imgNormBest8Right)
         scipy.misc.imsave('{}/norm-best8-left-rec.jpg'.format(result_dir), imgNormBest8LeftRec)
         scipy.misc.imsave('{}/norm-best8-right-rec.jpg'.format(result_dir), imgNormBest8RightRec)
+        scipy.misc.imsave('{}/norm-best8-left-rec-plain.jpg'.format(result_dir), imgNormBest8LeftRecNE)
+        scipy.misc.imsave('{}/norm-best8-right-rec-plain.jpg'.format(result_dir), imgNormBest8RightRecNE)
         scipy.misc.imsave('{}/norm-all-left.jpg'.format(result_dir), imgNormAllLeft)
         scipy.misc.imsave('{}/norm-all-right.jpg'.format(result_dir), imgNormAllRight)
         scipy.misc.imsave('{}/norm-all-left-rec.jpg'.format(result_dir), imgNormAllLeftRec)
         scipy.misc.imsave('{}/norm-all-right-rec.jpg'.format(result_dir), imgNormAllRightRec)
+        scipy.misc.imsave('{}/norm-all-left-rec-plain.jpg'.format(result_dir), imgNormAllLeftRecNE)
+        scipy.misc.imsave('{}/norm-all-right-rec-plain.jpg'.format(result_dir), imgNormAllRightRecNE)
         f2.savefig('{}/norm-best8-fig.jpg'.format(result_dir), dpi=450)
         f21.savefig('{}/norm-all-fig.jpg'.format(result_dir), dpi=450)
 
@@ -441,10 +452,14 @@ def main():
         scipy.misc.imsave('{}/unnorm-best8-right.jpg'.format(result_dir), imgUnnormBest8Right)
         scipy.misc.imsave('{}/unnorm-best8-left-rec.jpg'.format(result_dir), imgUnnormBest8LeftRec)
         scipy.misc.imsave('{}/unnorm-best8-right-rec.jpg'.format(result_dir), imgUnnormBest8RightRec)
+        scipy.misc.imsave('{}/unnorm-best8-left-rec-plain.jpg'.format(result_dir), imgUnnormBest8LeftRecNE)
+        scipy.misc.imsave('{}/unnorm-best8-right-rec-plain.jpg'.format(result_dir), imgUnnormBest8RightRecNE)
         scipy.misc.imsave('{}/unnorm-all-left.jpg'.format(result_dir), imgUnnormAllLeft)
         scipy.misc.imsave('{}/unnorm-all-right.jpg'.format(result_dir), imgUnnormAllRight)
         scipy.misc.imsave('{}/unnorm-all-left-rec.jpg'.format(result_dir), imgUnnormAllLeftRec)
         scipy.misc.imsave('{}/unnorm-all-right-rec.jpg'.format(result_dir), imgUnnormAllRightRec)
+        scipy.misc.imsave('{}/unnorm-all-left-rec-plain.jpg'.format(result_dir), imgUnnormAllLeftRecNE)
+        scipy.misc.imsave('{}/unnorm-all-right-rec-plain.jpg'.format(result_dir), imgUnnormAllRightRecNE)
         f3.savefig('{}/unnorm-best8-fig.jpg'.format(result_dir), dpi=450)
         f31.savefig('{}/unnorm-all-fig.jpg'.format(result_dir), dpi=450)
 

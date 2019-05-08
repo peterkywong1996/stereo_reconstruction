@@ -11,6 +11,21 @@ def get_img_shape(img):
         return img.shape
     else:
         return [None]*3
+
+    
+def resize_img(img_L, img_R):
+    h1, w1 = img_L.shape[:2]
+    h2, w2 = img_R.shape[:2]
+    
+    h, w = (min(h1, h2), min(w1, w2))
+    
+    if (h1, w1) != (h, w):
+        img_L = cv2.resize(img_L, (w,h))
+    if (h2, w2) != (h, w):
+        img_R = cv2.resize(img_R, (w,h))
+    
+    return img_L, img_R
+                       
     
 def add_padding(img, padding):   
     height, width, channels = get_img_shape(img)
@@ -46,6 +61,11 @@ def computeDisparityBySSD(img_L, img_R, block_size, numDisparities):
 
 
 def computeDisparityBySGBM(img_L, img_R, filter_params, args):   
+    if len(img_L.shape) > 2:
+        channels = 3 
+    else:
+        channels = 1
+    
     sgbm_L = cv2.StereoSGBM_create(
         minDisparity=args.minDisparity,
         numDisparities=args.numDisparities,
@@ -54,8 +74,8 @@ def computeDisparityBySGBM(img_L, img_R, filter_params, args):
         speckleWindowSize=args.speckleWindowSize,
         speckleRange=args.speckleRange,
         disp12MaxDiff=args.disp12MaxDiff,
-        P1=8*3*args.block_size**2,
-        P2=32*3*args.block_size**2
+        P1=args.P1*channels*args.block_size**2,
+        P2=args.P2*channels*args.block_size**2
     )
     sgbm_R = cv2.ximgproc.createRightMatcher(sgbm_L)
     
@@ -109,11 +129,16 @@ def main():
     parser.add_argument('--uniquenessRatio', type=int, default=10)
     parser.add_argument('--speckleWindowSize', type=int, default=100)
     parser.add_argument('--speckleRange', type=int, default=32)
+    parser.add_argument('--P1', type=int, help='the input value will be implicitly multiplied by number of channels and squared block_size', default=8)
+    parser.add_argument('--P2', type=int, help='the input value will be implicitly multiplied by number of channels and squared block_size', default=32)
         
     args = parser.parse_args()
     
     img_L = cv2.imread(args.dir_img1)
     img_R = cv2.imread(args.dir_img2)
+    
+    if img_L.shape[:2] != img_R.shape[:2]:
+        img_L, img_R = resize_img(img_L, img_R)
     
     padding = args.numDisparities
     img_L = add_padding(img_L, padding)
@@ -123,7 +148,7 @@ def main():
         disparity_map_ssd = computeDisparityBySSD(img_L, img_R, args.block_size, args.numDisparities)
         disparity_map_ssd = disparity_map_ssd[:, padding:]
         save_disparity(args.result_dir, 'ssd', disparity_map_ssd)
-        show_disparity(disparity_map_ssd)
+        #show_disparity(disparity_map_ssd)
     
     # FILTER Parameters
     filter_params = {
@@ -134,7 +159,7 @@ def main():
     disparity_map_sgbm = computeDisparityBySGBM(img_L, img_R, filter_params, args)
     disparity_map_sgbm = disparity_map_sgbm[:, padding:]
     save_disparity(args.result_dir, 'sgbm', disparity_map_sgbm)
-    show_disparity(disparity_map_sgbm)
+    #show_disparity(disparity_map_sgbm)
 
 if __name__ == "__main__":
     main()

@@ -1,9 +1,12 @@
 import numpy as np
 from scipy import linalg
+import scipy.misc
 from math import pow, sqrt
 import cv2
 import argparse
 from matplotlib import pyplot as plt
+import os
+import re
 
 def load_points(data_dir='./data/points/01_x1.txt'):
     x = np.loadtxt(data_dir, delimiter=',')
@@ -174,7 +177,7 @@ def my_print(mat):
         print(r)
 
 def drawlines(img1, lines, pts1, pts2):
-    img1_ = img1.copy()
+    img1_ = img1
     r, c = img1_.shape[:2]
     
     np.random.seed(1)
@@ -187,17 +190,29 @@ def drawlines(img1, lines, pts1, pts2):
     return img1_
 
 def drawEpilines(img1,img2,pts1,pts2,F):
+    # Rectify images
+    ret, h1, h2 = cv2.stereoRectifyUncalibrated(pts1, pts2, F, (img1.shape[1], img1.shape[0]))
+
+    img1_ = img1.copy()
+    img2_ = img2.copy()
+
     # Calculate and draw the epiplines in img1
     lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
     lines1 = lines1.reshape(-1,3)
-    imgLeft = drawlines(img1,lines1,pts1,pts2)
+    imgLeft = drawlines(img1_,lines1,pts1,pts2)
 
     # Calculate and draw the epiplines in img2
     lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
     lines2 = lines2.reshape(-1,3)
-    imgRight = drawlines(img2,lines2,pts2,pts1)
+    imgRight = drawlines(img2_,lines2,pts2,pts1)
 
-    return imgLeft, imgRight
+    imgLeftRectified = cv2.warpPerspective(imgLeft, h1, (img1.shape[1], img1.shape[0]))
+    imgRightRectified = cv2.warpPerspective(imgRight, h2, (img2.shape[1], img2.shape[0]))
+
+    imgLeftRectifiedNoEpi = cv2.warpPerspective(img1, h1, (img1.shape[1], img1.shape[0]))
+    imgRightRectifiedNoEpi = cv2.warpPerspective(img2, h2, (img2.shape[1], img2.shape[0]))
+
+    return imgLeft, imgRight, imgLeftRectified, imgRightRectified, imgLeftRectifiedNoEpi, imgRightRectifiedNoEpi
 
 def findAverageError(pts1, pts2):
     model = RansacModel(debug=False, return_all=True)
@@ -228,6 +243,8 @@ def main():
     parser.add_argument('--max_error', type=float)
     parser.add_argument('--use_manual_baseline', action='store_true', default=False,
                         help='Impose RANSAC rejection by the average error found with 8 manual points')
+    parser.add_argument('--save_result', action='store_true', default=False)
+    parser.add_argument('--result_id', type=int)
     args = parser.parse_args()
     
     if args.manual:
@@ -258,19 +275,22 @@ def main():
         model = RansacModel(debug=False, return_all=True)
         F_ransac, data_ransac = F_from_ransac(x1, x2, model, n, k, t, d, debug=model.debug, return_all=model.return_all, avg_err=avg_8pts_err)
     
-    
-    N_in = len(data_ransac)
-    print('\nNumber of inliers: ', N_in)
-    if N_in == x1.shape[1]:
-        print("RANSAC failed: did not meet fit acceptance criteria")
+        N_in = len(data_ransac)
+        print('\nNumber of inliers: ', N_in)
+        if N_in == x1.shape[1]:
+            print("RANSAC failed: did not meet fit acceptance criteria")
+        else:
+            print("RANSAC succeeded")
+        
+        x1_inliers = x1[:, data_ransac]
+        x2_inliers = x2[:, data_ransac]
+        
+        x1_best8 = x1[:, data_ransac[:8]]
+        x2_best8 = x2[:, data_ransac[:8]]
     else:
-        print("RANSAC succeeded")
-    
-    x1_inliers = x1[:, data_ransac]
-    x2_inliers = x2[:, data_ransac]
-    
-    x1_best8 = x1[:, data_ransac[:8]]
-    x2_best8 = x2[:, data_ransac[:8]]
+        x1_inliers = x1_best8 = x1
+        x2_inliers = x2_best8 = x2
+        N_in = 8
     
     print("\n---------------Matrix results---------------")
     
@@ -278,12 +298,12 @@ def main():
     print("\n---1. By OpenCV function---")
     
     print("\n(1a) F_cv with best 8 points:")
-    F_cv_best8, mask = cv2.findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
+    F_cv_best8, mask = cv2. findFundamentalMat(x1_best8.T, x2_best8.T, 2) # 2 --> 8-point algorithm
     my_print(F_cv_best8)
     
     print("\n(1b) F_cv with all {} inliers:".format(N_in))
-    F_cv_sift, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
-    my_print(F_cv_sift)
+    F_cv_all, mask = cv2.findFundamentalMat(x1_inliers.T, x2_inliers.T, 2) # 2 --> 8-point algorithm
+    my_print(F_cv_all)
     
     print("")
     print("\n---2. With normalization---")
@@ -293,8 +313,8 @@ def main():
     my_print(F_norm_best8)
     
     print("\n(2b) F_norm with all {} inliers:".format(N_in))
-    F_norm_sift = compute_fundamental_normalized(x1_inliers, x2_inliers)
-    my_print(F_norm_sift)
+    F_norm_all = compute_fundamental_normalized(x1_inliers, x2_inliers)
+    my_print(F_norm_all)
     
     print("")
     print("\n---3. Without normalization---")
@@ -304,46 +324,157 @@ def main():
     my_print(F_unnorm_best8)
     
     print("\n(3b) F with all {} inliers:".format(N_in))
-    F_unnorm_sift = compute_fundamental(x1_inliers, x2_inliers)
-    my_print(F_unnorm_sift)
-    
-    
+    F_unnorm_all = compute_fundamental(x1_inliers, x2_inliers)
+    my_print(F_unnorm_all)
+
     # Find epilines corresponding to points in right image (second image) and
     # drawing its lines on left image
     
     img1 = cv2.imread(args.dir_img1)
     img2 = cv2.imread(args.dir_img2)
 
-    imgCvBest8Left, imgCvBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_cv_best8)
-    imgCvSiftLeft, imgCvSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_sift)
+    imgCvBest8Left, imgCvBest8Right, imgCvBest8LeftRec, imgCvBest8RightRec, imgCvBest8LeftRecNE, imgCvBest8RightRecNE \
+        = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_cv_best8)
+    imgCvAllLeft, imgCvAllRight, imgCvAllLeftRec, imgCvAllRightRec, imgCvAllLeftRecNE, imgCvAllRightRecNE \
+        = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_cv_all)
 
-    imgNormBest8Left, imgNormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_norm_best8)
-    imgNormSiftLeft, imgNormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_sift)
+    imgNormBest8Left, imgNormBest8Right, imgNormBest8LeftRec, imgNormBest8RightRec, imgNormBest8LeftRecNE, imgNormBest8RightRecNE \
+        = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_norm_best8)
+    imgNormAllLeft, imgNormAllRight, imgNormAllLeftRec, imgNormAllRightRec, imgNormAllLeftRecNE, imgNormAllRightRecNE \
+        = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_norm_all)
 
-    imgUnnormBest8Left, imgUnnormBest8Right = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_unnorm_best8)
-    imgUnnormSiftLeft, imgUnnormSiftRight = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_sift)
+    imgUnnormBest8Left, imgUnnormBest8Right, imgUnnormBest8LeftRec, imgUnnormBest8RightRec, imgUnnormBest8LeftRecNE, imgUnnormBest8RightRecNE \
+        = drawEpilines(img1, img2, x1_best8.T, x2_best8.T, F_unnorm_best8)
+    imgUnnormAllLeft, imgUnnormAllRight, imgUnnormAllLeftRec, imgUnnormAllRightRec, imgUnnormAllLeftRecNE, imgUnnormAllRightRecNE \
+        = drawEpilines(img1, img2, x1_inliers.T, x2_inliers.T, F_unnorm_all)
 
     f1= plt.figure(1)
-    plt.subplot(2,2,1),plt.imshow(imgCvBest8Left)
-    plt.subplot(2,2,2),plt.imshow(imgCvBest8Right)
+    plt.subplot(2,2,1),plt.imshow(imgCvBest8Left),plt.title('CV/8Points/Left')
+    plt.subplot(2,2,2),plt.imshow(imgCvBest8Right),plt.title('CV/8Points/Right')
 
-    plt.subplot(2,2,3),plt.imshow(imgCvSiftLeft)
-    plt.subplot(2,2,4),plt.imshow(imgCvSiftRight)
+    plt.subplot(2,2,3),plt.imshow(imgCvBest8LeftRec),plt.title('CV/AllPoints/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgCvBest8RightRec),plt.title('CV/AllPoints/Right/Rectified')
     f1.show()
 
-    f2 = plt.figure(2)
-    plt.subplot(2,2,1),plt.imshow(imgNormBest8Left)
-    plt.subplot(2,2,2),plt.imshow(imgNormBest8Right)
+    f11= plt.figure(11)
+    plt.subplot(2,2,1),plt.imshow(imgCvAllLeft),plt.title('CV/AllPoints/Left')
+    plt.subplot(2,2,2),plt.imshow(imgCvAllRight),plt.title('CV/AllPoints/Right')
 
-    plt.subplot(2,2,3),plt.imshow(imgNormSiftLeft)
-    plt.subplot(2,2,4),plt.imshow(imgNormSiftRight)
+    plt.subplot(2,2,3),plt.imshow(imgCvAllLeftRec),plt.title('CV/AllPoints/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgCvAllRightRec),plt.title('CV/AllPoints/Right/Rectified')
+    f11.show()
+
+    f2= plt.figure(2)
+    plt.subplot(2,2,1),plt.imshow(imgNormBest8Left),plt.title('Normalized/8Points/Left')
+    plt.subplot(2,2,2),plt.imshow(imgNormBest8Right),plt.title('Normalized/8Points/Right')
+
+    plt.subplot(2,2,3),plt.imshow(imgNormBest8LeftRec),plt.title('Normalized/8Points/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgNormBest8RightRec),plt.title('Normalized/8Points/Right/Rectified')
     f2.show()
-    
-    plt.waitforbuttonpress(0)
 
-    print("imgCvSiftLeft/imgNormSiftLeft different? {}".format(
-        np.count_nonzero(imgCvSiftLeft != imgNormSiftLeft) > 0
-    ))
+    f21 = plt.figure(21)
+    plt.subplot(2,2,1),plt.imshow(imgNormAllLeft),plt.title('Normalized/AllPoints/Left')
+    plt.subplot(2,2,2),plt.imshow(imgNormAllRight),plt.title('Normalized/AllPoints/Right')
+
+    plt.subplot(2,2,3),plt.imshow(imgNormAllLeftRec),plt.title('Normalized/AllPoints/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgNormAllRightRec),plt.title('Normalized/AllPoints/Right/Rectified')
+    f21.show()
+
+    f3= plt.figure(3)
+    plt.subplot(2,2,1),plt.imshow(imgUnnormBest8Left),plt.title('Unnormalized/8Points/Left')
+    plt.subplot(2,2,2),plt.imshow(imgUnnormBest8Right),plt.title('Unnormalized/8Points/Right')
+
+    plt.subplot(2,2,3),plt.imshow(imgUnnormBest8LeftRec),plt.title('Unnormalized/8Points/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgUnnormBest8RightRec),plt.title('Unnormalized/8Points/Right/Rectified')
+    f3.show()
+
+    f31 = plt.figure(31)
+    plt.subplot(2,2,1),plt.imshow(imgUnnormAllLeft),plt.title('Unnormalized/AllPoints/Left')
+    plt.subplot(2,2,2),plt.imshow(imgUnnormAllRight),plt.title('Unnormalized/AllPoints/Right')
+
+    plt.subplot(2,2,3),plt.imshow(imgUnnormAllLeftRec),plt.title('Unnormalized/AllPoints/Left/Rectified')
+    plt.subplot(2,2,4),plt.imshow(imgUnnormAllRightRec),plt.title('Unnormalized/AllPoints/Right/Rectified')
+    f31.show()
+
+    if args.save_result:
+        # Save data
+        result_id = args.result_id
+        if result_id is None:
+            dirs = os.listdir('results', )
+            if isinstance(dirs, str):
+                dirs = [dirs]
+            
+            result_id = 1
+            if len(dirs) > 0:
+                res = re.match('result\_([0-9]*).*', dirs[-1])
+                if res is not None:
+                    result_id = int(res.group(1)) + 1
+
+        result_dir = 'results/result_{}/'.format(result_id)
+        print('Result dir.: {}'.format(result_dir))
+
+        try:
+            os.makedirs(result_dir, exist_ok=True)
+        except OSError as err:
+            print(err)
+        
+        scipy.misc.imsave('{}/cv-best8-left.jpg'.format(result_dir), imgCvBest8Left)
+        scipy.misc.imsave('{}/cv-best8-right.jpg'.format(result_dir), imgCvBest8Right)
+        scipy.misc.imsave('{}/cv-best8-left-rec.jpg'.format(result_dir), imgCvBest8LeftRec)
+        scipy.misc.imsave('{}/cv-best8-right-rec.jpg'.format(result_dir), imgCvBest8RightRec)
+        scipy.misc.imsave('{}/cv-best8-left-rec-plain.jpg'.format(result_dir), imgCvBest8LeftRecNE)
+        scipy.misc.imsave('{}/cv-best8-right-rec-plain.jpg'.format(result_dir), imgCvBest8RightRecNE)
+        scipy.misc.imsave('{}/cv-all-left.jpg'.format(result_dir), imgCvAllLeft)
+        scipy.misc.imsave('{}/cv-all-right.jpg'.format(result_dir), imgCvAllRight)
+        scipy.misc.imsave('{}/cv-all-left-rec.jpg'.format(result_dir), imgCvAllLeftRec)
+        scipy.misc.imsave('{}/cv-all-right-rec.jpg'.format(result_dir), imgCvAllRightRec)
+        scipy.misc.imsave('{}/cv-all-left-rec-plain.jpg'.format(result_dir), imgCvAllLeftRecNE)
+        scipy.misc.imsave('{}/cv-all-right-rec-plain.jpg'.format(result_dir), imgCvAllRightRecNE)
+        f1.savefig('{}/cv-best8-fig.jpg'.format(result_dir), dpi=450)
+        f11.savefig('{}/cv-all-fig.jpg'.format(result_dir), dpi=450)
+
+        scipy.misc.imsave('{}/norm-best8-left.jpg'.format(result_dir), imgNormBest8Left)
+        scipy.misc.imsave('{}/norm-best8-right.jpg'.format(result_dir), imgNormBest8Right)
+        scipy.misc.imsave('{}/norm-best8-left-rec.jpg'.format(result_dir), imgNormBest8LeftRec)
+        scipy.misc.imsave('{}/norm-best8-right-rec.jpg'.format(result_dir), imgNormBest8RightRec)
+        scipy.misc.imsave('{}/norm-best8-left-rec-plain.jpg'.format(result_dir), imgNormBest8LeftRecNE)
+        scipy.misc.imsave('{}/norm-best8-right-rec-plain.jpg'.format(result_dir), imgNormBest8RightRecNE)
+        scipy.misc.imsave('{}/norm-all-left.jpg'.format(result_dir), imgNormAllLeft)
+        scipy.misc.imsave('{}/norm-all-right.jpg'.format(result_dir), imgNormAllRight)
+        scipy.misc.imsave('{}/norm-all-left-rec.jpg'.format(result_dir), imgNormAllLeftRec)
+        scipy.misc.imsave('{}/norm-all-right-rec.jpg'.format(result_dir), imgNormAllRightRec)
+        scipy.misc.imsave('{}/norm-all-left-rec-plain.jpg'.format(result_dir), imgNormAllLeftRecNE)
+        scipy.misc.imsave('{}/norm-all-right-rec-plain.jpg'.format(result_dir), imgNormAllRightRecNE)
+        f2.savefig('{}/norm-best8-fig.jpg'.format(result_dir), dpi=450)
+        f21.savefig('{}/norm-all-fig.jpg'.format(result_dir), dpi=450)
+
+        scipy.misc.imsave('{}/unnorm-best8-left.jpg'.format(result_dir), imgUnnormBest8Left)
+        scipy.misc.imsave('{}/unnorm-best8-right.jpg'.format(result_dir), imgUnnormBest8Right)
+        scipy.misc.imsave('{}/unnorm-best8-left-rec.jpg'.format(result_dir), imgUnnormBest8LeftRec)
+        scipy.misc.imsave('{}/unnorm-best8-right-rec.jpg'.format(result_dir), imgUnnormBest8RightRec)
+        scipy.misc.imsave('{}/unnorm-best8-left-rec-plain.jpg'.format(result_dir), imgUnnormBest8LeftRecNE)
+        scipy.misc.imsave('{}/unnorm-best8-right-rec-plain.jpg'.format(result_dir), imgUnnormBest8RightRecNE)
+        scipy.misc.imsave('{}/unnorm-all-left.jpg'.format(result_dir), imgUnnormAllLeft)
+        scipy.misc.imsave('{}/unnorm-all-right.jpg'.format(result_dir), imgUnnormAllRight)
+        scipy.misc.imsave('{}/unnorm-all-left-rec.jpg'.format(result_dir), imgUnnormAllLeftRec)
+        scipy.misc.imsave('{}/unnorm-all-right-rec.jpg'.format(result_dir), imgUnnormAllRightRec)
+        scipy.misc.imsave('{}/unnorm-all-left-rec-plain.jpg'.format(result_dir), imgUnnormAllLeftRecNE)
+        scipy.misc.imsave('{}/unnorm-all-right-rec-plain.jpg'.format(result_dir), imgUnnormAllRightRecNE)
+        f3.savefig('{}/unnorm-best8-fig.jpg'.format(result_dir), dpi=450)
+        f31.savefig('{}/unnorm-all-fig.jpg'.format(result_dir), dpi=450)
+
+        params = """dist_threshold: {}
+max_iteration: {}
+max_error: {}
+use_manual_baseline: {}""".format(args.dist_threshold, args.max_iteration, args.max_error, args.use_manual_baseline)
+        
+        with open('{}/params.txt'.format(result_dir), 'w') as f:
+            f.write(params)
+        
+        with open('results/index.txt', 'a') as f:
+            f.write('{}: {}\n'.format(result_dir, params.replace('\n', ' ')))
+    else:
+        plt.waitforbuttonpress(0)
     
 if __name__ == "__main__":
     main()
